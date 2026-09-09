@@ -1,5 +1,6 @@
 import express from "express";
 import pgclient from "../db.js";
+import { requireAuth, requireAdmin } from "../middleware/authMiddleware.js";
 
 const router = express.Router();
 
@@ -29,7 +30,7 @@ const SELECT_PROPERTY = `
   LEFT JOIN users u ON p.owner_id = u.id
 `;
 
-// Get all properties
+// Get all properties (public — anyone can browse listings)
 router.get("/", async (req, res) => {
   try {
     const result = await pgclient.query(`${SELECT_PROPERTY} ORDER BY p.id DESC`);
@@ -40,15 +41,15 @@ router.get("/", async (req, res) => {
   }
 });
 
-// Get properties belonging to one user (used by "My Properties" page).
-// This route must come before "/:id" so Express does not treat "user"
-// as an id value.
-router.get("/user/:userId", async (req, res) => {
+// Get the logged-in user's own properties (used by "My Properties").
+// This route must come before "/:id" so Express does not treat "mine"
+// as an id value. The owner comes from the session, never from the URL
+// or the request body, so a user can only ever see their own listings here.
+router.get("/mine", requireAuth, async (req, res) => {
   try {
-    const { userId } = req.params;
     const result = await pgclient.query(
       `${SELECT_PROPERTY} WHERE p.owner_id = $1 ORDER BY p.id DESC`,
-      [userId]
+      [req.user.id]
     );
     res.status(200).json(result.rows);
   } catch (err) {
@@ -57,7 +58,7 @@ router.get("/user/:userId", async (req, res) => {
   }
 });
 
-// Get one property by id
+// Get one property by id (public)
 router.get("/:id", async (req, res) => {
   try {
     const { id } = req.params;
@@ -78,8 +79,8 @@ router.get("/:id", async (req, res) => {
   }
 });
 
-// Create a new property
-router.post("/", async (req, res) => {
+// Create a new property (must be logged in)
+router.post("/", requireAuth, async (req, res) => {
   try {
     const {
       title,
@@ -93,8 +94,11 @@ router.post("/", async (req, res) => {
       bathrooms,
       size,
       image,
-      ownerId,
     } = req.body;
+
+    // The owner is always the logged-in user — we never trust an ownerId
+    // sent from the frontend.
+    const ownerId = req.user.id;
 
     const result = await pgclient.query(
       `INSERT INTO properties
@@ -127,10 +131,21 @@ router.post("/", async (req, res) => {
   }
 });
 
-// Update an existing property
-router.put("/:id", async (req, res) => {
+// Update an existing property (owner or admin only)
+router.put("/:id", requireAuth, async (req, res) => {
   try {
     const { id } = req.params;
+
+    const existing = await pgclient.query("SELECT owner_id FROM properties WHERE id = $1", [id]);
+    if (existing.rows.length === 0) {
+      return res.status(404).json({ error: "Property not found" });
+    }
+
+    const isOwner = existing.rows[0].owner_id === req.user.id;
+    if (!isOwner && req.user.role !== "admin") {
+      return res.status(403).json({ error: "You can only edit your own properties" });
+    }
+
     const {
       title,
       description,
@@ -145,7 +160,7 @@ router.put("/:id", async (req, res) => {
       image,
     } = req.body;
 
-    const result = await pgclient.query(
+    await pgclient.query(
       `UPDATE properties SET
         title = $1,
         description = $2,
@@ -158,8 +173,7 @@ router.put("/:id", async (req, res) => {
         bathrooms = $9,
         size = $10,
         image_url = $11
-       WHERE id = $12
-       RETURNING id`,
+       WHERE id = $12`,
       [
         title,
         description,
@@ -176,10 +190,6 @@ router.put("/:id", async (req, res) => {
       ]
     );
 
-    if (result.rows.length === 0) {
-      return res.status(404).json({ error: "Property not found" });
-    }
-
     const updatedProperty = await pgclient.query(`${SELECT_PROPERTY} WHERE p.id = $1`, [id]);
     res.status(200).json(updatedProperty.rows[0]);
   } catch (err) {
@@ -188,8 +198,8 @@ router.put("/:id", async (req, res) => {
   }
 });
 
-// Update only the status column (used by the Admin Dashboard)
-router.put("/:id/status", async (req, res) => {
+// Update only the status column (Admin Dashboard approve/reject — admin only)
+router.put("/:id/status", requireAuth, requireAdmin, async (req, res) => {
   try {
     const { id } = req.params;
     const { status } = req.body;
@@ -211,16 +221,22 @@ router.put("/:id/status", async (req, res) => {
   }
 });
 
-// Delete a property
-router.delete("/:id", async (req, res) => {
+// Delete a property (owner or admin only)
+router.delete("/:id", requireAuth, async (req, res) => {
   try {
     const { id } = req.params;
-    const result = await pgclient.query("DELETE FROM properties WHERE id = $1 RETURNING *", [id]);
 
-    if (result.rows.length === 0) {
+    const existing = await pgclient.query("SELECT owner_id FROM properties WHERE id = $1", [id]);
+    if (existing.rows.length === 0) {
       return res.status(404).json({ error: "Property not found" });
     }
 
+    const isOwner = existing.rows[0].owner_id === req.user.id;
+    if (!isOwner && req.user.role !== "admin") {
+      return res.status(403).json({ error: "You can only delete your own properties" });
+    }
+
+    await pgclient.query("DELETE FROM properties WHERE id = $1", [id]);
     res.status(200).json({ message: "Property deleted" });
   } catch (err) {
     console.log(err);
