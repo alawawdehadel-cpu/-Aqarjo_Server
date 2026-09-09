@@ -25,7 +25,8 @@ aqairjo_server/
 │   ├── userRoutes.js       # /api/users
 │   ├── propertyRoutes.js   # /api/properties
 │   ├── favoriteRoutes.js   # /api/favorites
-│   └── inquiryRoutes.js    # /api/inquiries
+│   ├── inquiryRoutes.js    # /api/inquiries
+│   └── locationRoutes.js   # /api/location (Nominatim geocoding)
 ├── middleware/
 │   └── authMiddleware.js    # requireAuth, requireAdmin
 ├── scripts/
@@ -196,6 +197,94 @@ so the browser allows this. See `src/api/api.ts` in the client project.
 | GET | /api/inquiries | admin | Get all inquiries | - |
 | GET | /api/inquiries/:id | admin | Get one inquiry | - |
 | POST | /api/inquiries | public | Send a new inquiry from the Property Details page | `{ "propertyId": 2, "name": "Adel", "email": "adel@email.com", "message": "I am interested in this property." }` |
+
+### Location - `/api/location`
+
+| Method | URL | Auth | Purpose |
+|--------|-----|------|---------|
+| GET | /api/location?area=Khalda&city=Amman | public | Geocode an area/city into map coordinates (`city` required, `area` optional) |
+
+## Third-Party API Integration
+
+**Provider:** [OpenStreetMap Nominatim](https://nominatim.org/release-docs/latest/api/Search/) (`https://nominatim.openstreetmap.org/search`)
+
+**Purpose:** convert a property's `area`/`city` text (from PostgreSQL) into
+latitude/longitude, so the Property Details page can show a real map instead
+of a placeholder.
+
+**Endpoint created by AqarJo:**
+```
+GET /api/location?area=Khalda&city=Amman
+```
+
+**Flow:**
+```
+React PropertyDetails
+  → GET /api/location?area=...&city=...
+  → Express (routes/locationRoutes.js)
+  → GET https://nominatim.openstreetmap.org/search (Nominatim)
+  → Express transforms the response
+  → React renders an embedded OpenStreetMap iframe
+```
+
+**Example response:**
+```json
+{
+  "latitude": 31.994694,
+  "longitude": 35.8303431,
+  "displayName": "دوار خلدا, صويلح, Sweileh, ...",
+  "source": "OpenStreetMap Nominatim"
+}
+```
+
+**Error handling:**
+- Missing `city`, or an input longer than 100 characters → `400`
+- Nominatim returns zero results → `404 { "error": "Location not found" }`
+- Nominatim is unreachable or returns a non-2xx status → `502 { "error": "Location service is temporarily unavailable" }`
+- Internal errors are logged on the server and never exposed to the client.
+
+**Caching:** a simple in-memory `Map` (`locationCache` in
+`routes/locationRoutes.js`), keyed by `"<area>-<city>"` (lowercased). Once a
+given area/city has been geocoded, later requests for the same location are
+served from memory instead of calling Nominatim again — this reduces
+repeated third-party requests, improves response time, and helps the app
+stay within Nominatim's usage policy. The cache is intentionally simple (no
+Redis, no database table) and just lives for as long as the server process
+runs.
+
+**Usage policy compliance:**
+- Only one request is made, when a Property Details page loads (no
+  autocomplete, no per-keystroke requests).
+- Requests identify the app via a `User-Agent: AqarJo-University-Project/1.0`
+  header, as required by Nominatim's usage policy.
+- Only the location text (area, city, "Jordan") is sent — no user data, no
+  property id, nothing private.
+- Map results are attributed to OpenStreetMap contributors on the frontend.
+
+## M1 Notes (third-party API impact)
+
+Short notes for the M1 "impact of integrating third-party APIs and GitHub"
+analysis:
+
+- **Functionality:** property listings gain a real geographic visualization
+  (an actual map), which is more useful to buyers/renters than a text
+  placeholder.
+- **Efficiency:** the backend cache avoids repeating identical geocoding
+  requests; the frontend only calls `/api/location` once, when a property's
+  details are viewed (not on every keystroke or list render).
+- **Scalability:** the Express backend isolates React from the third-party
+  service entirely — React only ever talks to `/api/location`. The
+  geocoding provider could be swapped later (e.g. for a paid provider)
+  without changing `PropertyDetails.tsx`. In a production system, the
+  in-memory `Map` cache could be replaced with a persistent cache (e.g.
+  Redis or a database table) without changing the frontend at all.
+- **Reliability:** depending on Nominatim introduces an external failure
+  point outside AqarJo's control. The `502`/`404` handling and the
+  frontend's fallback UI mean a Nominatim outage degrades the map only,
+  not the rest of the Property Details page.
+- **GitHub:** this integration is committed as its own meaningful commit
+  (`Add third-party location API integration`), so the project history
+  documents when and how the feature was added.
 
 ## Notes
 
