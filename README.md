@@ -1,14 +1,8 @@
 # 🧠 AqarJo Backend (Express + PostgreSQL)
 
-This is the backend for the AqarJo real-estate marketplace. It provides
-REST APIs for:
-
-- authentication
-- properties
-- favorites
-- users
-- inquiries
-- property location services
+> The backend for the AqarJo real-estate marketplace — a REST API for
+> authentication, properties, favorites, users, inquiries, and property
+> location services.
 
 ## 🏗 Tech Stack
 
