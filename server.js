@@ -8,6 +8,7 @@ import userRoutes from "./routes/userRoutes.js";
 import propertyRoutes from "./routes/propertyRoutes.js";
 import favoriteRoutes from "./routes/favoriteRoutes.js";
 import inquiryRoutes from "./routes/inquiryRoutes.js";
+import locationRoutes from "./routes/locationRoutes.js";
 
 dotenv.config();
 
@@ -59,6 +60,7 @@ app.use("/api/users", userRoutes);
 app.use("/api/properties", propertyRoutes);
 app.use("/api/favorites", favoriteRoutes);
 app.use("/api/inquiries", inquiryRoutes);
+app.use("/api/location", locationRoutes);
 
 const PORT = process.env.PORT || 5000;
 

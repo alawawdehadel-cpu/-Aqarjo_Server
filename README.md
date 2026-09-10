@@ -1,56 +1,290 @@
-# AqarJo Backend
+# 🧠 AqarJo Backend (Express + PostgreSQL)
 
-Simple Node.js + Express + PostgreSQL backend for the AqarJo real estate
-marketplace. It provides a REST API for authentication, properties, users,
-favorites and inquiries, used by the `aqarjo_Client` React frontend.
+> The backend for the AqarJo real-estate marketplace — a REST API for
+> authentication, properties, favorites, users, inquiries, and property
+> location services.
 
-## Technologies used
+## 🏗 Tech Stack
 
 - Node.js
-- Express (routing, middleware)
-- PostgreSQL (database)
-- pg (PostgreSQL client for Node.js)
-- cors (allows the React app to call this API)
-- dotenv (loads settings from a `.env` file)
-- express-session (session-based login)
-- bcryptjs (password hashing)
-- nodemon (auto-restarts the server while developing)
+- Express
+- PostgreSQL
+- pg
+- dotenv
+- cors
+- express-session
+- bcryptjs
+- nodemon
+- Built-in Fetch API (used to call OpenStreetMap Nominatim — no Axios)
 
-## Folder structure
+## 🚀 Getting Started
 
-```
-aqairjo_server/
-├── routes/
-│   ├── authRoutes.js       # /api/auth (register, login, me, logout)
-│   ├── userRoutes.js       # /api/users
-│   ├── propertyRoutes.js   # /api/properties
-│   ├── favoriteRoutes.js   # /api/favorites
-│   └── inquiryRoutes.js    # /api/inquiries
-├── middleware/
-│   └── authMiddleware.js    # requireAuth, requireAdmin
-├── scripts/
-│   └── migrateAuth.js        # adds password_hash + dev passwords to an existing DB
-├── server.js                  # creates the Express app and starts the server
-├── db.js                       # PostgreSQL connection (pg Pool)
-├── schema.sql                   # creates tables + inserts sample data
-├── .env.example
-├── .gitignore
-├── package.json
-└── README.md
-```
-
-## 1. Install dependencies
+1. Install dependencies:
 
 ```
 cd aqairjo_server
 npm install
 ```
 
-## 2. Configure environment variables
+2. Create a PostgreSQL database named `aqarjo_db`.
 
-Copy `.env.example` to `.env` and fill in your own values:
+3. Configure environment variables using `.env.example` (copy it to `.env`
+   and fill in your own values).
+
+4. Load the schema — either open `schema.sql` in pgAdmin's Query Tool, or:
 
 ```
+psql -U postgres -d aqarjo_db -f schema.sql
+```
+
+> ⚠️ **Warning:** `schema.sql` contains `DROP TABLE` statements. It is
+> intended for a **fresh** database setup and recreates the tables. Do
+> **not** rerun it on a database that already has data you want to keep.
+
+5. Initialize development authentication passwords:
+
+```
+npm run auth:migrate
+```
+
+`scripts/migrateAuth.js` is safe to run more than once — it only adds a
+`password_hash` column if missing and only fills it in for users that
+don't have one yet. It never drops tables.
+
+6. Start the backend:
+
+```
+npm run dev
+```
+
+The API runs at `http://localhost:5000`.
+
+## 📁 Project Structure
+
+```
+aqairjo_server/
+├── routes/
+│   ├── authRoutes.js       # /api/auth
+│   ├── userRoutes.js       # /api/users
+│   ├── propertyRoutes.js   # /api/properties
+│   ├── favoriteRoutes.js   # /api/favorites
+│   ├── inquiryRoutes.js    # /api/inquiries
+│   └── locationRoutes.js   # /api/location (Nominatim geocoding)
+├── middleware/
+│   └── authMiddleware.js    # requireAuth, requireAdmin
+├── scripts/
+│   └── migrateAuth.js        # adds password_hash + dev passwords, idempotent
+├── server.js                  # Express app, middleware, route mounting
+├── db.js                       # PostgreSQL connection (pg Pool)
+├── schema.sql                   # table definitions + seed data
+├── .env.example
+├── package.json
+└── README.md
+```
+
+## 🗄 Database
+
+Four tables: `users`, `properties`, `favorites`, `inquiries`.
+
+- **users → properties**: one user can own many properties (`owner_id`).
+- **users ↔ properties (favorites)**: many-to-many, through the
+  `favorites` join table.
+- **properties → inquiries**: one property can receive many inquiries.
+
+`users` also holds `password_hash` (bcrypt), used for authentication.
+
+## 📡 API Endpoints
+
+The API runs on `http://localhost:5000`.
+
+### 🔐 Auth Routes
+
+Base URL: `/api/auth`
+
+| Method | URL | Purpose |
+|--------|-----|---------|
+| POST | `/register` | Register a new user and create a session |
+| POST | `/login` | Login an existing user |
+| GET | `/me` | Return the current logged-in user |
+| POST | `/logout` | Destroy the current session |
+
+Register example (public registration always creates `role: "user"` —
+`role` is never accepted from the request body):
+
+```json
+{
+  "name": "Adel Ahmad",
+  "email": "adel@example.com",
+  "phone": "0790000000",
+  "password": "123456"
+}
+```
+
+Login example:
+
+```json
+{
+  "email": "adel@example.com",
+  "password": "123456"
+}
+```
+
+### 🏠 Property Routes
+
+Base URL: `/api/properties`
+
+| Method | URL | Access | Purpose |
+|--------|-----|--------|---------|
+| GET | `/` | public | Get all properties |
+| GET | `/mine` | authenticated | Get the current user's properties |
+| GET | `/:id` | public | Get property details |
+| POST | `/` | authenticated | Create a property |
+| PUT | `/:id` | owner/admin | Update a property |
+| PUT | `/:id/status` | admin | Approve/reject a property |
+| DELETE | `/:id` | owner/admin | Delete a property |
+
+Create example:
+
+```json
+{
+  "title": "Modern Apartment for Sale in Khalda",
+  "description": "A bright third-floor apartment...",
+  "price": 85000,
+  "listingType": "sale",
+  "propertyType": "apartment",
+  "city": "Amman",
+  "area": "Khalda",
+  "bedrooms": 3,
+  "bathrooms": 2,
+  "size": 150,
+  "image": "https://..."
+}
+```
+
+There is no `ownerId` in the request body — `owner_id` is always
+determined from the authenticated session user (`req.user.id`).
+
+### ❤️ Favorite Routes
+
+Base URL: `/api/favorites`
+
+| Method | URL | Access | Purpose |
+|--------|-----|--------|---------|
+| GET | `/` | authenticated | Get the current user's favorites |
+| POST | `/` | authenticated | Add a favorite |
+| DELETE | `/:propertyId` | authenticated | Remove a favorite |
+
+```json
+{ "propertyId": 3 }
+```
+
+There is no `userId` in the request — favorites always belong to the
+logged-in session user.
+
+### 👥 User Routes
+
+Base URL: `/api/users`
+
+| Method | URL | Access |
+|--------|-----|--------|
+| GET | `/` | admin |
+| GET | `/:id` | self or admin |
+| POST | `/` | admin |
+| PUT | `/:id` | self or admin |
+| DELETE | `/:id` | admin |
+
+A normal user updating their own profile cannot change their own `role` —
+only an admin can change a role.
+
+### ✉️ Inquiry Routes
+
+Base URL: `/api/inquiries`
+
+| Method | URL | Access |
+|--------|-----|--------|
+| GET | `/` | admin |
+| GET | `/:id` | admin |
+| POST | `/` | public |
+
+```json
+{
+  "propertyId": 2,
+  "name": "Adel",
+  "email": "adel@email.com",
+  "message": "I am interested in this property."
+}
+```
+
+### 🗺 Location Route
+
+Base URL: `/api/location`
+
+```
+GET /api/location?area=Khalda&city=Amman
+```
+
+- Public endpoint (no login required).
+- `city` is required; `area` is optional.
+- Calls the OpenStreetMap Nominatim API to geocode the text.
+- Returns latitude/longitude.
+- Results are cached in memory.
+- No API key required.
+
+```json
+{
+  "latitude": 31.994694,
+  "longitude": 35.8303431,
+  "displayName": "Khalda, Amman, Jordan",
+  "source": "OpenStreetMap Nominatim"
+}
+```
+
+## 🔒 Authentication & Authorization
+
+```
+Login/Register → bcrypt password hashing/comparison → req.session.userId
+  → HTTP-only aqarjo.sid cookie → requireAuth → req.user → requireAdmin (when required)
+```
+
+- Session-based authentication (`express-session`) — no JWT.
+- No `localStorage` authentication on the frontend.
+- `password_hash` is never returned to the frontend.
+- The backend checks ownership/admin access on every protected route —
+  it never trusts an id sent from the client.
+- All SQL queries are parameterized (`$1`, `$2`, ...).
+
+## 🧪 Development Accounts
+
+> These are development/demo accounts only — for local testing.
+
+**Normal user**
+- Email: `omar.masri@mail.com`
+- Password: `User123!`
+
+**Admin**
+- Email: `admin@aqarjo.jo`
+- Password: `Admin123!`
+
+## 🌍 Third-Party API
+
+**Provider:** OpenStreetMap Nominatim
+
+**Purpose:** convert a property's area/city text into latitude/longitude
+coordinates.
+
+```
+React → Express /api/location → Nominatim → Express → React map
+```
+
+- Results are cached in memory to avoid repeating identical requests.
+- External failures are handled gracefully (`404`/`502`, never a crash).
+- OpenStreetMap attribution is shown on the frontend.
+- No API key required.
+- No private user information is ever sent to Nominatim.
+
+## ⚙️ Environment Variables
+
+```env
 PORT=5000
 
 DB_USER=postgres
@@ -64,147 +298,17 @@ SESSION_SECRET=replace_with_a_long_random_secret
 NODE_ENV=development
 ```
 
-`.env` is listed in `.gitignore` and is never committed. `SESSION_SECRET`
-should be a long random string — it's used to sign the session cookie.
+| Variable | Purpose |
+|----------|---------|
+| `PORT` | Port the Express server listens on |
+| `DB_USER` | PostgreSQL username |
+| `DB_HOST` | PostgreSQL host |
+| `DB_NAME` | PostgreSQL database name (`aqarjo_db`) |
+| `DB_PASSWORD` | PostgreSQL password |
+| `DB_PORT` | PostgreSQL port |
+| `CLIENT_URL` | Frontend origin allowed by CORS (with credentials) |
+| `SESSION_SECRET` | Secret used to sign the session cookie |
+| `NODE_ENV` | `development` or `production` (affects cookie security settings) |
 
-## 3. Create the PostgreSQL database
-
-1. Open pgAdmin (or DBeaver).
-2. Create a new database named `aqarjo_db`.
-3. Open the Query Tool for `aqarjo_db`.
-4. Open `schema.sql` from this folder.
-5. Run it.
-6. Verify the tables were created: `users`, `properties`, `favorites`, `inquiries`.
-
-`schema.sql` also inserts sample users and about 12 sample properties
-(reused from the frontend mock data) so the database has real data to
-demo immediately. These seed users have no password yet.
-
-## 4. Set up development passwords
-
-Run the authentication migration once to add a `password_hash` column
-(if it isn't there yet) and generate a development password for every
-seed user that doesn't have one:
-
-```
-npm run auth:migrate
-```
-
-This is safe to run again later — it never overwrites a password that's
-already set, and it never drops any table.
-
-## 5. Start the backend
-
-```
-npm run dev
-```
-
-(or `npm start` to run without nodemon)
-
-## 6. Test the API
-
-Open a browser or Postman:
-
-```
-GET http://localhost:5000/api
-GET http://localhost:5000/api/properties
-```
-
-## Authentication
-
-- **Method:** session-based authentication (`express-session`), not JWT.
-- **Password storage:** hashed with `bcryptjs` — the plain password is
-  never stored, and `password_hash` is never sent to the frontend.
-- **How it works:** on a successful login/register, the server stores the
-  user's id in `req.session.userId`. Express signs a session cookie
-  (`aqarjo.sid`) and sends it to the browser; the browser automatically
-  sends it back on every later request, so the server knows who's asking.
-  `requireAuth` (in `middleware/authMiddleware.js`) reads that session id,
-  loads the user from PostgreSQL, and attaches it as `req.user`.
-  `requireAdmin` then checks `req.user.role === "admin"`.
-
-### Auth endpoints
-
-| Method | URL | Purpose |
-|--------|-----|---------|
-| POST | /api/auth/register | Create an account (always role `user`) and log in |
-| POST | /api/auth/login | Log in with email + password |
-| GET | /api/auth/me | Get the current logged-in user (401 if not logged in) |
-| POST | /api/auth/logout | Destroy the session |
-
-### Development demo accounts
-
-Normal user:
-```
-omar.masri@mail.com
-User123!
-```
-
-Admin:
-```
-admin@aqarjo.jo
-Admin123!
-```
-
-(Every other seeded user also has the password `User123!` after running
-`npm run auth:migrate`.)
-
-## How frontend connects to backend
-
-The React app (`aqarjo_Client`) runs on `http://localhost:5173` (Vite) and
-calls this API on `http://localhost:5000` using the Fetch API with
-`credentials: "include"` on every request, so the session cookie is sent
-along. `cors` is configured with `origin: CLIENT_URL, credentials: true`
-so the browser allows this. See `src/api/api.ts` in the client project.
-
-## API Endpoints
-
-### Properties - `/api/properties`
-
-| Method | URL | Auth | Purpose | Example body |
-|--------|-----|------|---------|--------------|
-| GET | /api/properties | public | Get all properties | - |
-| GET | /api/properties/mine | logged in | Get the current user's own properties | - |
-| GET | /api/properties/:id | public | Get one property (also increments views) | - |
-| POST | /api/properties | logged in | Create a property (owner = session user) | `{ "title": "...", "description": "...", "price": 85000, "listingType": "sale", "propertyType": "apartment", "city": "Amman", "area": "Khalda", "bedrooms": 3, "bathrooms": 2, "size": 150, "image": "https://..." }` |
-| PUT | /api/properties/:id | owner or admin | Update a property | same as POST |
-| PUT | /api/properties/:id/status | admin | Approve/reject a property | `{ "status": "approved" }` |
-| DELETE | /api/properties/:id | owner or admin | Delete a property | - |
-
-### Favorites - `/api/favorites` (all require login; always the session user)
-
-| Method | URL | Purpose | Example body |
-|--------|-----|---------|--------------|
-| GET | /api/favorites | Get the logged-in user's favorited properties | - |
-| POST | /api/favorites | Add a property to favorites | `{ "propertyId": 3 }` |
-| DELETE | /api/favorites/:propertyId | Remove a property from favorites | - |
-
-### Users - `/api/users`
-
-| Method | URL | Auth | Purpose | Example body |
-|--------|-----|------|---------|--------------|
-| GET | /api/users | admin | Get all users | - |
-| GET | /api/users/:id | self or admin | Get one user | - |
-| POST | /api/users | admin | Create a user directly | `{ "name": "Ahmad Ali", "email": "ahmad@email.com", "phone": "0790000000", "role": "user" }` |
-| PUT | /api/users/:id | self or admin | Update a user (only admin can change `role`) | `{ "name": "...", "email": "...", "phone": "..." }` |
-| DELETE | /api/users/:id | admin | Delete a user | - |
-
-### Inquiries - `/api/inquiries`
-
-| Method | URL | Auth | Purpose | Example body |
-|--------|-----|------|---------|--------------|
-| GET | /api/inquiries | admin | Get all inquiries | - |
-| GET | /api/inquiries/:id | admin | Get one inquiry | - |
-| POST | /api/inquiries | public | Send a new inquiry from the Property Details page | `{ "propertyId": 2, "name": "Adel", "email": "adel@email.com", "message": "I am interested in this property." }` |
-
-## Notes
-
-- Property JSON responses use camelCase field names (`listingType`,
-  `propertyType`, `ownerId`, `dateAdded`, ...) even though the database
-  columns are snake_case (`listing_type`, `property_type`, `owner_id`,
-  `created_at`, ...), using simple SQL aliases in the `SELECT` queries.
-- `price` and `size` are cast with `::float` so they come back as JSON
-  numbers instead of strings.
-- Ownership is always resolved on the backend from the session
-  (`req.user.id`) — an `ownerId`/`userId` sent from the frontend is never
-  trusted for who owns what.
+`.env` is git-ignored and never committed. Use your own real values
+locally — never the placeholders above.
