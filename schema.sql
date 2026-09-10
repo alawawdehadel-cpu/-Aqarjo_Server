@@ -1,6 +1,10 @@
 -- ==================================================
 -- AqarJo Database Schema
 -- Run this file inside the "aqarjo_db" database.
+--
+-- After loading this file, the seed users below have no password yet
+-- (password_hash is NULL). Run "npm run auth:migrate" to generate
+-- development bcrypt passwords for them (see scripts/migrateAuth.js).
 -- ==================================================
 
 -- Drop tables if they already exist, so this file can be re-run safely.
@@ -19,6 +23,7 @@ CREATE TABLE users (
   email VARCHAR(150) NOT NULL UNIQUE,
   phone VARCHAR(30),
   role VARCHAR(20) NOT NULL DEFAULT 'user', -- 'user' or 'admin'
+  password_hash VARCHAR(255), -- bcrypt hash, never the plain password
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 

@@ -1,15 +1,18 @@
 import express from "express";
 import pgclient from "../db.js";
+import { requireAuth } from "../middleware/authMiddleware.js";
 
 const router = express.Router();
 
-// Get the favorited properties for one user.
+// Every route here needs a logged-in user — favorites always belong to
+// req.user.id (from the session), never to an id sent by the client.
+router.use(requireAuth);
+
+// Get the logged-in user's favorited properties.
 // Joins favorites -> properties so the frontend gets full property objects,
 // the same shape PropertyCard already expects.
-router.get("/:userId", async (req, res) => {
+router.get("/", async (req, res) => {
   try {
-    const { userId } = req.params;
-
     const result = await pgclient.query(
       `SELECT
         p.id,
@@ -35,7 +38,7 @@ router.get("/:userId", async (req, res) => {
       LEFT JOIN users u ON p.owner_id = u.id
       WHERE f.user_id = $1
       ORDER BY f.id DESC`,
-      [userId]
+      [req.user.id]
     );
 
     res.status(200).json(result.rows);
@@ -45,17 +48,17 @@ router.get("/:userId", async (req, res) => {
   }
 });
 
-// Add a property to a user's favorites
+// Add a property to the logged-in user's favorites
 router.post("/", async (req, res) => {
   try {
-    const { userId, propertyId } = req.body;
+    const { propertyId } = req.body;
 
     const result = await pgclient.query(
       `INSERT INTO favorites (user_id, property_id)
        VALUES ($1, $2)
        ON CONFLICT (user_id, property_id) DO NOTHING
        RETURNING *`,
-      [userId, propertyId]
+      [req.user.id, propertyId]
     );
 
     res.status(201).json(result.rows[0] || { message: "Already favorited" });
@@ -65,14 +68,14 @@ router.post("/", async (req, res) => {
   }
 });
 
-// Remove a property from a user's favorites
-router.delete("/:userId/:propertyId", async (req, res) => {
+// Remove a property from the logged-in user's favorites
+router.delete("/:propertyId", async (req, res) => {
   try {
-    const { userId, propertyId } = req.params;
+    const { propertyId } = req.params;
 
     const result = await pgclient.query(
       "DELETE FROM favorites WHERE user_id = $1 AND property_id = $2 RETURNING *",
-      [userId, propertyId]
+      [req.user.id, propertyId]
     );
 
     if (result.rows.length === 0) {

@@ -1,10 +1,11 @@
 import express from "express";
 import pgclient from "../db.js";
+import { requireAuth, requireAdmin } from "../middleware/authMiddleware.js";
 
 const router = express.Router();
 
-// Get all inquiries
-router.get("/", async (req, res) => {
+// Get all inquiries — admin only (this is a list of everyone's contact info).
+router.get("/", requireAuth, requireAdmin, async (req, res) => {
   try {
     const result = await pgclient.query(
       "SELECT * FROM inquiries ORDER BY created_at DESC"
@@ -16,8 +17,8 @@ router.get("/", async (req, res) => {
   }
 });
 
-// Get one inquiry by id
-router.get("/:id", async (req, res) => {
+// Get one inquiry by id — admin only.
+router.get("/:id", requireAuth, requireAdmin, async (req, res) => {
   try {
     const { id } = req.params;
     const result = await pgclient.query("SELECT * FROM inquiries WHERE id = $1", [id]);
@@ -33,7 +34,8 @@ router.get("/:id", async (req, res) => {
   }
 });
 
-// Create a new inquiry (sent from the Property Details page)
+// Create a new inquiry (sent from the Property Details form) — stays public,
+// since a visitor doesn't need an account to contact a property owner.
 router.post("/", async (req, res) => {
   try {
     const { propertyId, name, email, message } = req.body;
