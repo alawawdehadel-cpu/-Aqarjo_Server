@@ -108,7 +108,7 @@ VALUES
 
 ('Luxury Villa for Sale in Abdoun',
  'Detached villa with a private garden, covered parking for three cars and a separate guest floor. Finished to a very high standard with imported fittings throughout.',
- 295000, 'sale', 'house', 'Amman', 'Abdoun', 5, 4, 420, 'https://picsum.photos/seed/aqarjo-4/800/600', 'approved', true, 731, 1),
+ 295000, 'sale', 'house', 'Amman', 'Abdoun', 5, 4, 420, 'https://images.unsplash.com/photo-1613977257363-707ba9348227?w=800&h=600&fit=crop', 'approved', true, 731, 1),
 
 ('Family Apartment for Sale in Shmeisani',
  'Spacious four-bedroom apartment in a well-maintained building with an elevator and 24-hour security, close to banks and offices.',
